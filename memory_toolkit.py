@@ -203,9 +203,8 @@ class AdvancedMemoryToolkit:
         mem_op.size = len(data)
         mem_op.flags = 0
 
-        # Copy data to structure
-        for i, byte in enumerate(data):
-            mem_op.data[i] = byte
+        # Copy data to structure - use slice assignment for ctypes array
+        mem_op.data[:len(data)] = data
 
         try:
             fcntl.ioctl(self.device_fd, IOCTL_WRITE_PHYS_MEM, mem_op)
