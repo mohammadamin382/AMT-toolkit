@@ -66,7 +66,7 @@ class PageInfo(ctypes.Structure):
         ("user", ctypes.c_int),
         ("accessed", ctypes.c_int),
         ("dirty", ctypes.c_int),
-        ("global", ctypes.c_int),
+        ("global_flag", ctypes.c_int),  # تغییر نام از global به global_flag
         ("nx", ctypes.c_int),
         ("cache_type", ctypes.c_ulong)
     ]
@@ -306,7 +306,7 @@ class AdvancedMemoryToolkit:
                 'user': bool(page_info.user),
                 'accessed': bool(page_info.accessed),
                 'dirty': bool(page_info.dirty),
-                'global_page': bool(page_info.global),
+                'global_page': bool(page_info.global_flag),
                 'nx': bool(page_info.nx),
                 'cache_type': page_info.cache_type
             }
