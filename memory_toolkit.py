@@ -205,7 +205,7 @@ class AdvancedMemoryToolkit:
 
         # Copy data to structure
         for i, byte in enumerate(data):
-            mem_op.data[i] = ctypes.c_char(byte).value
+            mem_op.data[i] = byte
 
         try:
             fcntl.ioctl(self.device_fd, IOCTL_WRITE_PHYS_MEM, mem_op)
@@ -355,9 +355,9 @@ class AdvancedMemoryToolkit:
 
         # Copy key and IV - proper ctypes conversion
         for i, byte in enumerate(key):
-            mem_enc.key[i] = ctypes.c_char(byte).value
+            mem_enc.key[i] = byte
         for i, byte in enumerate(iv):
-            mem_enc.iv[i] = ctypes.c_char(byte).value
+            mem_enc.iv[i] = byte
 
         try:
             fcntl.ioctl(self.device_fd, IOCTL_ENCRYPT_MEMORY, mem_enc)
@@ -411,9 +411,9 @@ class AdvancedMemoryToolkit:
 
         # Copy key and IV - proper ctypes conversion
         for i, byte in enumerate(key):
-            mem_enc.key[i] = ctypes.c_char(byte).value
+            mem_enc.key[i] = byte
         for i, byte in enumerate(iv):
-            mem_enc.iv[i] = ctypes.c_char(byte).value
+            mem_enc.iv[i] = byte
 
         try:
             fcntl.ioctl(self.device_fd, IOCTL_DECRYPT_MEMORY, mem_enc)
