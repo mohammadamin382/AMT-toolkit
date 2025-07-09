@@ -2,6 +2,7 @@
 """
 Advanced Memory Toolkit - Professional Memory Operations Framework
 High-Performance Python Interface for Kernel-Level Memory Management
+NOTE: This is an early version optimized for specific kernel versions.
 """
 
 import os
@@ -486,7 +487,7 @@ class AdvancedMemoryToolkit:
             'total_operations': self.operation_count,
             'capabilities': [
                 'Physical Memory Read/Write',
-                'Virtual ↔ Physical Address Translation',
+                'Virtual ↔ Physical Address Translation',  
                 'Page Information Retrieval',
                 'Real AES/ChaCha20 Encryption',
                 'Memory Copy/Compare Operations'
