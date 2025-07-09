@@ -919,11 +919,10 @@ quick_diagnostic()
 ```
 
 #### برای Python:
-```python
-# Type hints استفاده کنید
-# Docstring های کامل
-# Exception handling مناسب
-```
+**Type hints استفاده کنید**
+**Docstring های کامل**
+**Exception handling مناسب**
+
 ### 🎭 راهنمای کامنت‌نویسی
 
 کامنت‌ها باید:
