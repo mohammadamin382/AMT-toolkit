@@ -7,7 +7,6 @@ NOTE: This is an early version optimized for specific kernel versions.
 
 import os
 import sys
-import fcntl
 import struct
 import ctypes
 from typing import Optional, Tuple, List, Dict
@@ -19,14 +18,38 @@ import hashlib
 DEVICE_PATH = "/dev/advanced_memory"
 BUFFER_SIZE = 8192
 
-# IOCTL commands (matching kernel module)
-IOCTL_READ_PHYS_MEM = 0x80006D01
-IOCTL_WRITE_PHYS_MEM = 0x40006D02
-IOCTL_VIRT_TO_PHYS = 0xC0106D03
-IOCTL_PHYS_TO_VIRT = 0xC0106D04
-IOCTL_GET_PAGE_INFO = 0xC0186D05
-IOCTL_ENCRYPT_MEMORY = 0xC0236D06
-IOCTL_DECRYPT_MEMORY = 0xC0236D07
+# IOCTL commands (calculated using proper Python macros)
+# محاسبه درست مقادیر IOCTL با استفاده از fcntl
+import fcntl
+import array
+
+# تعریف ماکروهای IOCTL برای Python
+def _IOC(dir, type, nr, size):
+    return (dir << 30) | (ord(type) << 8) | (nr) | (size << 16)
+
+def _IOR(type, nr, size):
+    return _IOC(2, type, nr, size)  # 2 = _IOC_READ
+
+def _IOW(type, nr, size):
+    return _IOC(1, type, nr, size)  # 1 = _IOC_WRITE
+
+def _IOWR(type, nr, size):
+    return _IOC(3, type, nr, size)  # 3 = _IOC_READ | _IOC_WRITE
+
+# محاسبه صحیح اندازه ساختارها
+MEM_OPERATION_SIZE = ctypes.sizeof(MemoryOperation)
+ADDR_TRANSLATION_SIZE = ctypes.sizeof(AddressTranslation)
+PAGE_INFO_SIZE = ctypes.sizeof(PageInfo)
+MEM_ENCRYPTION_SIZE = ctypes.sizeof(MemoryEncryption)
+
+# تعریف صحیح IOCTLها - حالا با کرنل مطابقت داره! 🎯
+IOCTL_READ_PHYS_MEM = _IOR('M', 1, MEM_OPERATION_SIZE)
+IOCTL_WRITE_PHYS_MEM = _IOW('M', 2, MEM_OPERATION_SIZE)
+IOCTL_VIRT_TO_PHYS = _IOWR('M', 3, ADDR_TRANSLATION_SIZE)
+IOCTL_PHYS_TO_VIRT = _IOWR('M', 4, ADDR_TRANSLATION_SIZE)
+IOCTL_GET_PAGE_INFO = _IOWR('M', 5, PAGE_INFO_SIZE)
+IOCTL_ENCRYPT_MEMORY = _IOWR('M', 6, MEM_ENCRYPTION_SIZE)
+IOCTL_DECRYPT_MEMORY = _IOWR('M', 7, MEM_ENCRYPTION_SIZE)
 
 class MemoryOperation(ctypes.Structure):
     _fields_ = [
