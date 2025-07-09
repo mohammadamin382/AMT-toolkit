@@ -118,6 +118,7 @@ class AdvancedMemoryToolkit:
             Data bytes or None if failed
         """
         if not self.device_fd:
+            print("❌ Device not initialized")
             return None
 
         # Safety validation
@@ -281,7 +282,7 @@ class AdvancedMemoryToolkit:
                 'user': bool(page_info.user),
                 'accessed': bool(page_info.accessed),
                 'dirty': bool(page_info.dirty),
-                'global_page': bool(page_info.global),
+                'global_page': bool(getattr(page_info, 'global')),
                 'nx': bool(page_info.nx),
                 'cache_type': page_info.cache_type
             }
@@ -562,6 +563,12 @@ def main():
             paddr = toolkit.virtual_to_physical(vaddr)
             if paddr:
                 print(f"🔄 Virtual 0x{vaddr:x} → Physical 0x{paddr:x}")
+
+        elif args.p2v:
+            paddr = int(args.p2v[0], 16)
+            vaddr = toolkit.physical_to_virtual(paddr)
+            if vaddr:
+                print(f"🔄 Physical 0x{paddr:x} → Virtual 0x{vaddr:x}")
 
         elif args.page_info:
             addr = int(args.page_info[0], 16)
