@@ -281,7 +281,7 @@ class AdvancedMemoryToolkit:
                 'user': bool(page_info.user),
                 'accessed': bool(page_info.accessed),
                 'dirty': bool(page_info.dirty),
-                'global': bool(page_info.global),
+                'global_page': bool(page_info.global),
                 'nx': bool(page_info.nx),
                 'cache_type': page_info.cache_type
             }
