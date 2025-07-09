@@ -353,10 +353,8 @@ class AdvancedMemoryToolkit:
         mem_enc.algorithm = 0 if algorithm == 'aes' else 1
 
         # Copy key and IV - proper ctypes conversion
-        for i, byte in enumerate(key):
-            mem_enc.key[i] = byte
-        for i, byte in enumerate(iv):
-            mem_enc.iv[i] = byte
+        ctypes.memmove(ctypes.addressof(mem_enc.key), key, len(key))
+        ctypes.memmove(ctypes.addressof(mem_enc.iv), iv, len(iv))
 
         try:
             fcntl.ioctl(self.device_fd, IOCTL_ENCRYPT_MEMORY, mem_enc)
@@ -409,10 +407,8 @@ class AdvancedMemoryToolkit:
         mem_enc.algorithm = 0 if algorithm == 'aes' else 1
 
         # Copy key and IV - proper ctypes conversion
-        for i, byte in enumerate(key):
-            mem_enc.key[i] = byte
-        for i, byte in enumerate(iv):
-            mem_enc.iv[i] = byte
+        ctypes.memmove(ctypes.addressof(mem_enc.key), key, len(key))
+        ctypes.memmove(ctypes.addressof(mem_enc.iv), iv, len(iv))
 
         try:
             fcntl.ioctl(self.device_fd, IOCTL_DECRYPT_MEMORY, mem_enc)
