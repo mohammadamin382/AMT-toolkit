@@ -71,6 +71,11 @@
 #define HAVE_UTSNAME_HEADER
 #endif
 
+// ماکروی سازگاری برای pte_offset_map در کرنل 6.12+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
+#define HAVE_NO_PTE_OFFSET_MAP
+#endif
+
 // ماکروهای جایگزین برای توابع حذف شده
 #ifdef HAVE_NO_PTE_USER
 #define pte_user(pte) (!pte_present(pte) ? 0 : !(pte_val(pte) & _PAGE_USER) ? 0 : 1)
@@ -204,7 +209,9 @@ static inline void advmem_mmap_read_unlock(struct mm_struct *mm) {
 }
 
 static inline pte_t *advmem_pte_offset_map(pmd_t *pmd, unsigned long addr) {
-#ifdef HAVE_PTE_OFFSET_MAP_LOCK
+#ifdef HAVE_NO_PTE_OFFSET_MAP
+    return pte_offset_kernel(pmd, addr);  // کرنل 6.12+ فقط pte_offset_kernel داره
+#elif defined(HAVE_PTE_OFFSET_MAP_LOCK)
     return pte_offset_map(pmd, addr);  // روش جدید - با قفل! 🔒
 #else
     return pte_offset_kernel(pmd, addr);  // روش قدیمی - بدون قفل! 🚪
@@ -603,7 +610,7 @@ static unsigned long virtual_to_physical_addr(unsigned long virt_addr, pid_t pid
     pte = advmem_pte_offset_map(pmd, virt_addr);
     if (!pte || pte_none(*pte)) {
         advmem_debug("سطح PTE موجود نیست! 🚪");
-#ifdef HAVE_PTE_OFFSET_MAP_LOCK
+#if defined(HAVE_PTE_OFFSET_MAP_LOCK) && !defined(HAVE_NO_PTE_OFFSET_MAP)
         if (pte) pte_unmap(pte);
 #endif
         goto out;
@@ -622,7 +629,7 @@ static unsigned long virtual_to_physical_addr(unsigned long virt_addr, pid_t pid
         }
     }
 
-#ifdef HAVE_PTE_OFFSET_MAP_LOCK
+#if defined(HAVE_PTE_OFFSET_MAP_LOCK) && !defined(HAVE_NO_PTE_OFFSET_MAP)
     pte_unmap(pte);
 #endif
 
@@ -717,7 +724,7 @@ static int get_page_information(unsigned long addr, struct page_info *info) {
     pte = advmem_pte_offset_map(pmd, addr);
     if (!pte || pte_none(*pte)) {
         advmem_debug("PTE پیدا نشد! 🔍");
-#ifdef HAVE_PTE_OFFSET_MAP_LOCK
+#if defined(HAVE_PTE_OFFSET_MAP_LOCK) && !defined(HAVE_NO_PTE_OFFSET_MAP)
         if (pte) pte_unmap(pte);
 #endif
         goto out;
@@ -739,7 +746,7 @@ static int get_page_information(unsigned long addr, struct page_info *info) {
 
     advmem_debug("اطلاعات صفحه جمع‌آوری شد! 📊");
 
-#ifdef HAVE_PTE_OFFSET_MAP_LOCK
+#if defined(HAVE_PTE_OFFSET_MAP_LOCK) && !defined(HAVE_NO_PTE_OFFSET_MAP)
     pte_unmap(pte);
 #endif
 
@@ -794,10 +801,11 @@ static int decrypt_memory_region(struct mem_encryption *enc) {
 
 // تابع اصلی IOCTL - دل برنامه! ❤️
 static long device_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
-    struct mem_operation mem_op;
-    struct addr_translation addr_trans;
-    struct page_info page_inf;
-    struct mem_encryption mem_enc;
+    // استفاده از pointer برای کاهش stack usage
+    struct mem_operation *mem_op = NULL;
+    struct addr_translation *addr_trans = NULL;
+    struct page_info *page_inf = NULL;
+    struct mem_encryption *mem_enc = NULL;
     int ret = 0;
 
     // بررسی امنیتی: نیاز به مجوز CAP_SYS_ADMIN
@@ -823,113 +831,169 @@ static long device_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
     switch (cmd) {
         case IOCTL_READ_PHYS_MEM:
             advmem_debug("درخواست خواندن حافظه فیزیکی! 📖");
-            if (copy_from_user(&mem_op, (void*)arg, sizeof(mem_op))) {
+            mem_op = kmalloc(sizeof(*mem_op), GFP_KERNEL);
+            if (!mem_op) {
+                ret = -ENOMEM;
+                break;
+            }
+            
+            if (copy_from_user(mem_op, (void*)arg, sizeof(*mem_op))) {
                 advmem_err("کپی از کاربر شکست خورد! 😞");
                 ret = -EFAULT;
+                kfree(mem_op);
                 break;
             }
 
-            ret = read_physical_memory(mem_op.phys_addr, mem_op.data, mem_op.size);
-            mem_op.result = ret;
+            ret = read_physical_memory(mem_op->phys_addr, mem_op->data, mem_op->size);
+            mem_op->result = ret;
 
-            if (copy_to_user((void*)arg, &mem_op, sizeof(mem_op))) {
+            if (copy_to_user((void*)arg, mem_op, sizeof(*mem_op))) {
                 advmem_err("کپی به کاربر شکست خورد! 😞");
                 ret = -EFAULT;
             }
+            kfree(mem_op);
             break;
 
         case IOCTL_WRITE_PHYS_MEM:
             advmem_debug("درخواست نوشتن حافظه فیزیکی! ✍️");
-            if (copy_from_user(&mem_op, (void*)arg, sizeof(mem_op))) {
+            mem_op = kmalloc(sizeof(*mem_op), GFP_KERNEL);
+            if (!mem_op) {
+                ret = -ENOMEM;
+                break;
+            }
+            
+            if (copy_from_user(mem_op, (void*)arg, sizeof(*mem_op))) {
                 ret = -EFAULT;
+                kfree(mem_op);
                 break;
             }
 
-            ret = write_physical_memory(mem_op.phys_addr, mem_op.data, mem_op.size);
-            mem_op.result = ret;
+            ret = write_physical_memory(mem_op->phys_addr, mem_op->data, mem_op->size);
+            mem_op->result = ret;
 
-            if (copy_to_user((void*)arg, &mem_op, sizeof(mem_op))) {
+            if (copy_to_user((void*)arg, mem_op, sizeof(*mem_op))) {
                 ret = -EFAULT;
             }
+            kfree(mem_op);
             break;
 
         case IOCTL_VIRT_TO_PHYS:
             advmem_debug("درخواست تبدیل مجازی به فیزیکی! 🔄");
-            if (copy_from_user(&addr_trans, (void*)arg, sizeof(addr_trans))) {
+            addr_trans = kmalloc(sizeof(*addr_trans), GFP_KERNEL);
+            if (!addr_trans) {
+                ret = -ENOMEM;
+                break;
+            }
+            
+            if (copy_from_user(addr_trans, (void*)arg, sizeof(*addr_trans))) {
                 ret = -EFAULT;
+                kfree(addr_trans);
                 break;
             }
 
-            addr_trans.output_addr = virtual_to_physical_addr(addr_trans.input_addr, addr_trans.pid);
-            addr_trans.success = (addr_trans.output_addr != 0);
+            addr_trans->output_addr = virtual_to_physical_addr(addr_trans->input_addr, addr_trans->pid);
+            addr_trans->success = (addr_trans->output_addr != 0);
 
-            if (copy_to_user((void*)arg, &addr_trans, sizeof(addr_trans))) {
+            if (copy_to_user((void*)arg, addr_trans, sizeof(*addr_trans))) {
                 ret = -EFAULT;
             } else {
                 ret = 0;  // موفقیت در IOCTL
             }
+            kfree(addr_trans);
             break;
 
         case IOCTL_PHYS_TO_VIRT:
             advmem_debug("درخواست تبدیل فیزیکی به مجازی! 🔄");
-            if (copy_from_user(&addr_trans, (void*)arg, sizeof(addr_trans))) {
+            addr_trans = kmalloc(sizeof(*addr_trans), GFP_KERNEL);
+            if (!addr_trans) {
+                ret = -ENOMEM;
+                break;
+            }
+            
+            if (copy_from_user(addr_trans, (void*)arg, sizeof(*addr_trans))) {
                 ret = -EFAULT;
+                kfree(addr_trans);
                 break;
             }
 
-            addr_trans.output_addr = physical_to_virtual_addr(addr_trans.input_addr, addr_trans.pid);
-            addr_trans.success = (addr_trans.output_addr != 0);
+            addr_trans->output_addr = physical_to_virtual_addr(addr_trans->input_addr, addr_trans->pid);
+            addr_trans->success = (addr_trans->output_addr != 0);
 
-            if (copy_to_user((void*)arg, &addr_trans, sizeof(addr_trans))) {
+            if (copy_to_user((void*)arg, addr_trans, sizeof(*addr_trans))) {
                 ret = -EFAULT;
             } else {
                 ret = 0;
             }
+            kfree(addr_trans);
             break;
 
         case IOCTL_GET_PAGE_INFO:
             advmem_debug("درخواست اطلاعات صفحه! 📄");
-            if (copy_from_user(&page_inf, (void*)arg, sizeof(page_inf))) {
+            page_inf = kmalloc(sizeof(*page_inf), GFP_KERNEL);
+            if (!page_inf) {
+                ret = -ENOMEM;
+                break;
+            }
+            
+            if (copy_from_user(page_inf, (void*)arg, sizeof(*page_inf))) {
                 ret = -EFAULT;
+                kfree(page_inf);
                 break;
             }
 
-            ret = get_page_information(page_inf.addr, &page_inf);
+            ret = get_page_information(page_inf->addr, page_inf);
 
-            if (copy_to_user((void*)arg, &page_inf, sizeof(page_inf))) {
+            if (copy_to_user((void*)arg, page_inf, sizeof(*page_inf))) {
                 ret = -EFAULT;
             }
+            kfree(page_inf);
             break;
 
 #ifndef CRYPTO_NOT_AVAILABLE
         case IOCTL_ENCRYPT_MEMORY:
             advmem_debug("درخواست رمزنگاری! 🔒");
-            if (copy_from_user(&mem_enc, (void*)arg, sizeof(mem_enc))) {
+            mem_enc = kmalloc(sizeof(*mem_enc), GFP_KERNEL);
+            if (!mem_enc) {
+                ret = -ENOMEM;
+                break;
+            }
+            
+            if (copy_from_user(mem_enc, (void*)arg, sizeof(*mem_enc))) {
                 ret = -EFAULT;
+                kfree(mem_enc);
                 break;
             }
 
-            ret = encrypt_memory_region(&mem_enc);
-            mem_enc.result = ret;
+            ret = encrypt_memory_region(mem_enc);
+            mem_enc->result = ret;
 
-            if (copy_to_user((void*)arg, &mem_enc, sizeof(mem_enc))) {
+            if (copy_to_user((void*)arg, mem_enc, sizeof(*mem_enc))) {
                 ret = -EFAULT;
             }
+            kfree(mem_enc);
             break;
 
         case IOCTL_DECRYPT_MEMORY:
             advmem_debug("درخواست رمزگشایی! 🔓");
-            if (copy_from_user(&mem_enc, (void*)arg, sizeof(mem_enc))) {
+            mem_enc = kmalloc(sizeof(*mem_enc), GFP_KERNEL);
+            if (!mem_enc) {
+                ret = -ENOMEM;
+                break;
+            }
+            
+            if (copy_from_user(mem_enc, (void*)arg, sizeof(*mem_enc))) {
                 ret = -EFAULT;
+                kfree(mem_enc);
                 break;
             }
 
-            ret = decrypt_memory_region(&mem_enc);
-            mem_enc.result = ret;
+            ret = decrypt_memory_region(mem_enc);
+            mem_enc->result = ret;
 
-            if (copy_to_user((void*)arg, &mem_enc, sizeof(mem_enc))) {
+            if (copy_to_user((void*)arg, mem_enc, sizeof(*mem_enc))) {
                 ret = -EFAULT;
             }
+            kfree(mem_enc);
             break;
 #endif
 
