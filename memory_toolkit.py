@@ -36,21 +36,7 @@ def _IOW(type, nr, size):
 def _IOWR(type, nr, size):
     return _IOC(3, type, nr, size)  # 3 = _IOC_READ | _IOC_WRITE
 
-# محاسبه صحیح اندازه ساختارها
-MEM_OPERATION_SIZE = ctypes.sizeof(MemoryOperation)
-ADDR_TRANSLATION_SIZE = ctypes.sizeof(AddressTranslation)
-PAGE_INFO_SIZE = ctypes.sizeof(PageInfo)
-MEM_ENCRYPTION_SIZE = ctypes.sizeof(MemoryEncryption)
-
-# تعریف صحیح IOCTLها - حالا با کرنل مطابقت داره! 🎯
-IOCTL_READ_PHYS_MEM = _IOR('M', 1, MEM_OPERATION_SIZE)
-IOCTL_WRITE_PHYS_MEM = _IOW('M', 2, MEM_OPERATION_SIZE)
-IOCTL_VIRT_TO_PHYS = _IOWR('M', 3, ADDR_TRANSLATION_SIZE)
-IOCTL_PHYS_TO_VIRT = _IOWR('M', 4, ADDR_TRANSLATION_SIZE)
-IOCTL_GET_PAGE_INFO = _IOWR('M', 5, PAGE_INFO_SIZE)
-IOCTL_ENCRYPT_MEMORY = _IOWR('M', 6, MEM_ENCRYPTION_SIZE)
-IOCTL_DECRYPT_MEMORY = _IOWR('M', 7, MEM_ENCRYPTION_SIZE)
-
+# ابتدا کلاس‌ها رو تعریف می‌کنیم
 class MemoryOperation(ctypes.Structure):
     _fields_ = [
         ("phys_addr", ctypes.c_ulong),
@@ -95,6 +81,21 @@ class MemoryEncryption(ctypes.Structure):
         ("encrypted_data", ctypes.c_char * BUFFER_SIZE),
         ("result", ctypes.c_int)
     ]
+
+# حالا که کلاس‌ها تعریف شدن، اندازه‌هاشون رو محاسبه می‌کنیم
+MEM_OPERATION_SIZE = ctypes.sizeof(MemoryOperation)
+ADDR_TRANSLATION_SIZE = ctypes.sizeof(AddressTranslation)
+PAGE_INFO_SIZE = ctypes.sizeof(PageInfo)
+MEM_ENCRYPTION_SIZE = ctypes.sizeof(MemoryEncryption)
+
+# تعریف صحیح IOCTLها - حالا با کرنل مطابقت داره! 🎯
+IOCTL_READ_PHYS_MEM = _IOR('M', 1, MEM_OPERATION_SIZE)
+IOCTL_WRITE_PHYS_MEM = _IOW('M', 2, MEM_OPERATION_SIZE)
+IOCTL_VIRT_TO_PHYS = _IOWR('M', 3, ADDR_TRANSLATION_SIZE)
+IOCTL_PHYS_TO_VIRT = _IOWR('M', 4, ADDR_TRANSLATION_SIZE)
+IOCTL_GET_PAGE_INFO = _IOWR('M', 5, PAGE_INFO_SIZE)
+IOCTL_ENCRYPT_MEMORY = _IOWR('M', 6, MEM_ENCRYPTION_SIZE)
+IOCTL_DECRYPT_MEMORY = _IOWR('M', 7, MEM_ENCRYPTION_SIZE)
 
 class AdvancedMemoryToolkit:
     """Professional Memory Operations Framework"""
@@ -305,7 +306,7 @@ class AdvancedMemoryToolkit:
                 'user': bool(page_info.user),
                 'accessed': bool(page_info.accessed),
                 'dirty': bool(page_info.dirty),
-                'global_page': bool(getattr(page_info, 'global')),
+                'global_page': bool(page_info.global),
                 'nx': bool(page_info.nx),
                 'cache_type': page_info.cache_type
             }
