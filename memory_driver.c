@@ -57,6 +57,32 @@
 #define CRYPTO_NOT_AVAILABLE
 #endif
 
+// ماکروهای سازگاری برای کرنل 6.0+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
+#define HAVE_NEW_CLASS_CREATE
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
+#define HAVE_NO_PTE_USER
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
+#include <linux/utsname.h>
+#define HAVE_UTSNAME_HEADER
+#endif
+
+// ماکروهای جایگزین برای توابع حذف شده
+#ifdef HAVE_NO_PTE_USER
+#define pte_user(pte) (!pte_present(pte) ? 0 : !(pte_val(pte) & _PAGE_USER) ? 0 : 1)
+#endif
+
+// تابع جایگزین برای utsname در کرنل‌های جدید
+#ifdef HAVE_UTSNAME_HEADER
+#define advmem_utsname() (&init_uts_ns.name)
+#else
+#define advmem_utsname() utsname()
+#endif
+
 // تعاریف اصلی - اینا رو دست نزن وگرنه کل سیستم می‌ره تو فاز! 💥
 #define DEVICE_NAME "advanced_memory"
 #define CLASS_NAME "advmem_class"
@@ -700,7 +726,12 @@ static int get_page_information(unsigned long addr, struct page_info *info) {
     // استخراج اطلاعات صفحه - همه چیز رو می‌گیریم! 🕵️
     info->present = pte_present(*pte);       // حاضر و آماده؟
     info->writable = pte_write(*pte);        // قابل نوشتن؟
+#ifdef HAVE_NO_PTE_USER
+    // در کرنل‌های جدید pte_user حذف شده، از fallback استفاده می‌کنیم
+    info->user = pte_user(*pte);             // کاربری؟ (with fallback)
+#else
     info->user = pte_user(*pte);             // کاربری؟
+#endif
     info->accessed = pte_young(*pte);        // اخیراً استفاده شده؟
     info->dirty = pte_dirty(*pte);           // تغییر کرده؟
     info->page_frame = pte_pfn(*pte);        // شماره فریم
@@ -930,7 +961,7 @@ static int device_release(struct inode *inodep, struct file *filep) {
 static int __init advmem_init(void) {
     advmem_info("راه‌اندازی ماژول کرنل Advanced Memory Toolkit! 🚀");
     advmem_info("نسخه کرنل: %s (کامپایل شده برای %d.%d.%d) 🐧", 
-                utsname()->release, 
+                advmem_utsname()->release, 
                 LINUX_VERSION_CODE >> 16,
                 (LINUX_VERSION_CODE >> 8) & 0xff,
                 LINUX_VERSION_CODE & 0xff);
@@ -958,7 +989,11 @@ static int __init advmem_init(void) {
     }
 
     // ایجاد کلاس دستگاه - ساخت خانواده! 👨‍👩‍👧‍👦
+#ifdef HAVE_NEW_CLASS_CREATE
+    advmem_class = class_create(CLASS_NAME);
+#else
     advmem_class = class_create(THIS_MODULE, CLASS_NAME);
+#endif
     if (IS_ERR(advmem_class)) {
         unregister_chrdev(major_number, DEVICE_NAME);
         advmem_err("ایجاد کلاس دستگاه شکست خورد: %ld 😞", PTR_ERR(advmem_class));
