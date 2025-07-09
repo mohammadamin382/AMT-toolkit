@@ -205,7 +205,7 @@ class AdvancedMemoryToolkit:
 
         # Copy data to structure
         for i, byte in enumerate(data):
-            mem_op.data[i] = byte if isinstance(byte, int) else ord(byte)
+            mem_op.data[i] = ctypes.c_char(byte).value
 
         try:
             fcntl.ioctl(self.device_fd, IOCTL_WRITE_PHYS_MEM, mem_op)
@@ -353,11 +353,11 @@ class AdvancedMemoryToolkit:
         mem_enc.size = size
         mem_enc.algorithm = 0 if algorithm == 'aes' else 1
 
-        # Copy key and IV - convert bytes to integers
+        # Copy key and IV - proper ctypes conversion
         for i, byte in enumerate(key):
-            mem_enc.key[i] = byte if isinstance(byte, int) else ord(byte)
+            mem_enc.key[i] = ctypes.c_char(byte).value
         for i, byte in enumerate(iv):
-            mem_enc.iv[i] = byte if isinstance(byte, int) else ord(byte)
+            mem_enc.iv[i] = ctypes.c_char(byte).value
 
         try:
             fcntl.ioctl(self.device_fd, IOCTL_ENCRYPT_MEMORY, mem_enc)
@@ -409,11 +409,11 @@ class AdvancedMemoryToolkit:
         mem_enc.size = size
         mem_enc.algorithm = 0 if algorithm == 'aes' else 1
 
-        # Copy key and IV - convert bytes to integers
+        # Copy key and IV - proper ctypes conversion
         for i, byte in enumerate(key):
-            mem_enc.key[i] = byte if isinstance(byte, int) else ord(byte)
+            mem_enc.key[i] = ctypes.c_char(byte).value
         for i, byte in enumerate(iv):
-            mem_enc.iv[i] = byte if isinstance(byte, int) else ord(byte)
+            mem_enc.iv[i] = ctypes.c_char(byte).value
 
         try:
             fcntl.ioctl(self.device_fd, IOCTL_DECRYPT_MEMORY, mem_enc)
