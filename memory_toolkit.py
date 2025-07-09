@@ -204,7 +204,7 @@ class AdvancedMemoryToolkit:
         mem_op.flags = 0
 
         # Copy data to structure - use slice assignment for ctypes array
-        ctypes.memmove(ctypes.addressof(mem_op.data), data, len(data))
+        ctypes.memmove(ctypes.byref(mem_op, MemoryOperation.data.offset), data, len(data))
 
         try:
             fcntl.ioctl(self.device_fd, IOCTL_WRITE_PHYS_MEM, mem_op)
