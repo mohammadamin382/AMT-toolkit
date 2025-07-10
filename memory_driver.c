@@ -123,6 +123,8 @@
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
 #define HAVE_KERNEL_6_12_PLUS
 /* Additional compatibility for very new kernels */
+/* In kernel 6.12+, pte_offset_map behavior changed */
+#undef HAVE_PTE_OFFSET_MAP_NOLOCK
 #endif
 
 /* Memory layout compatibility */
@@ -352,8 +354,11 @@ static inline int amt_access_ok(const void __user *addr, unsigned long size)
 
 static inline pte_t *amt_pte_offset_map(pmd_t *pmd, unsigned long addr)
 {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 5, 0)
-    /* For newer kernels, use pte_offset_map_lock or pte_offset_map */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
+    /* For kernel 6.12+, use the new pte_offset_map function */
+    return pte_offset_map(pmd, addr);
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(6, 5, 0)
+    /* For kernels 6.5-6.11, use pte_offset_map */
     return pte_offset_map(pmd, addr);
 #elif defined(HAVE_PTE_OFFSET_MAP_NOLOCK)
     return pte_offset_map_nolock(NULL, pmd, addr, NULL);
@@ -364,8 +369,12 @@ static inline pte_t *amt_pte_offset_map(pmd_t *pmd, unsigned long addr)
 
 static inline void amt_pte_unmap(pte_t *pte)
 {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 5, 0)
-    /* For newer kernels, always use pte_unmap */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
+    /* For kernel 6.12+, always use pte_unmap */
+    if (pte)
+        pte_unmap(pte);
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(6, 5, 0)
+    /* For kernels 6.5-6.11, always use pte_unmap */
     if (pte)
         pte_unmap(pte);
 #elif !defined(HAVE_PTE_OFFSET_MAP_NOLOCK)
