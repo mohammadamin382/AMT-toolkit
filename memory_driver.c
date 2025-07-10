@@ -16,7 +16,6 @@
  * Version: 4.0 Professional
  */
 
-#include <linux/atomic.h>
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -77,12 +76,24 @@
 #define HAVE_NO_SET_MEMORY_X
 #endif
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0)
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 5, 0)
+#define HAVE_NEWER_PTE_API
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 10, 0)
+#define HAVE_LATEST_MM_API
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0) && LINUX_VERSION_CODE < KERNEL_VERSION(6, 5, 0)
 #define HAVE_PTE_OFFSET_MAP_NOLOCK
 #endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
 #define HAVE_MMAP_LOCK_API
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)
+#define HAVE_NEWER_MMAP_LOCK
 #endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
@@ -107,6 +118,11 @@
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 0, 0)
 #error "Kernel version too old! Minimum supported version is 4.0"
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
+#define HAVE_KERNEL_6_12_PLUS
+/* Additional compatibility for very new kernels */
 #endif
 
 /* Memory layout compatibility */
@@ -300,7 +316,7 @@ static DEFINE_RATELIMIT_STATE(amt_ratelimit, HZ, 10);
 /* Compatibility wrapper functions */
 static inline void amt_mmap_read_lock(struct mm_struct *mm)
 {
-#ifdef HAVE_MMAP_LOCK_API
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
     mmap_read_lock(mm);
 #else
     down_read(&mm->mmap_sem);
@@ -309,7 +325,7 @@ static inline void amt_mmap_read_lock(struct mm_struct *mm)
 
 static inline void amt_mmap_read_unlock(struct mm_struct *mm)
 {
-#ifdef HAVE_MMAP_LOCK_API
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 8, 0)
     mmap_read_unlock(mm);
 #else
     up_read(&mm->mmap_sem);
@@ -336,7 +352,10 @@ static inline int amt_access_ok(const void __user *addr, unsigned long size)
 
 static inline pte_t *amt_pte_offset_map(pmd_t *pmd, unsigned long addr)
 {
-#ifdef HAVE_PTE_OFFSET_MAP_NOLOCK
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 5, 0)
+    /* For newer kernels, use pte_offset_map_lock or pte_offset_map */
+    return pte_offset_map(pmd, addr);
+#elif defined(HAVE_PTE_OFFSET_MAP_NOLOCK)
     return pte_offset_map_nolock(NULL, pmd, addr, NULL);
 #else
     return pte_offset_map(pmd, addr);
@@ -345,8 +364,13 @@ static inline pte_t *amt_pte_offset_map(pmd_t *pmd, unsigned long addr)
 
 static inline void amt_pte_unmap(pte_t *pte)
 {
-#ifndef HAVE_PTE_OFFSET_MAP_NOLOCK
-    pte_unmap(pte);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 5, 0)
+    /* For newer kernels, always use pte_unmap */
+    if (pte)
+        pte_unmap(pte);
+#elif !defined(HAVE_PTE_OFFSET_MAP_NOLOCK)
+    if (pte)
+        pte_unmap(pte);
 #endif
 }
 
@@ -815,10 +839,17 @@ static int amt_get_memory_statistics(struct amt_memory_stats *stats)
     stats->total_ram = si.totalram * PAGE_SIZE;
     stats->free_ram = si.freeram * PAGE_SIZE;
     stats->available_ram = si.freeram * PAGE_SIZE; /* Simplified */
+    #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
     stats->cached = global_node_page_state(NR_FILE_PAGES) * PAGE_SIZE;
     stats->buffers = si.bufferram * PAGE_SIZE;
     stats->slab = global_node_page_state(NR_SLAB_RECLAIMABLE_B) +
                   global_node_page_state(NR_SLAB_UNRECLAIMABLE_B);
+#else
+    stats->cached = global_page_state(NR_FILE_PAGES) * PAGE_SIZE;
+    stats->buffers = si.bufferram * PAGE_SIZE;
+    stats->slab = global_page_state(NR_SLAB_RECLAIMABLE) +
+                  global_page_state(NR_SLAB_UNRECLAIMABLE);
+#endif
 
     /* Our driver statistics */
     stats->operations_count = atomic_read(&operation_count);
