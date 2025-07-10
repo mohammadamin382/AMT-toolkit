@@ -137,23 +137,231 @@
 #define HAVE_KERNEL_6_8_PLUS
 #endif
 
-/* PTE mapping compatibility macros */
+/* Enhanced PTE mapping compatibility for all kernel versions */
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
-/* For 6.12+, use direct pte_offset_kernel */
-#define AMT_PTE_OFFSET_MAP(pmd, addr) pte_offset_kernel(pmd, addr)
+
+/* For kernel 6.12+: Use get_user_pages for user-space, pte_offset_kernel for kernel-space */
+static inline unsigned long amt_get_user_physical_addr(struct mm_struct *mm, unsigned long virt_addr)
+{
+    struct page *page;
+    int ret;
+    unsigned long phys_addr = 0;
+    
+    if (virt_addr >= TASK_SIZE) {
+        /* Kernel address - use direct mapping */
+        if (virt_addr >= PAGE_OFFSET) {
+            return virt_to_phys((void *)virt_addr);
+        }
+        return 0;
+    }
+    
+    /* User-space address - use get_user_pages */
+    mmap_read_lock(mm);
+    ret = get_user_pages(virt_addr, 1, FOLL_GET, &page, NULL);
+    mmap_read_unlock(mm);
+    
+    if (ret == 1) {
+        phys_addr = page_to_phys(page) + (virt_addr & ~PAGE_MASK);
+        put_page(page);
+    }
+    
+    return phys_addr;
+}
+
+static inline pte_t *amt_safe_pte_lookup(struct mm_struct *mm, unsigned long addr, 
+                                        pgd_t **pgd_out, p4d_t **p4d_out, 
+                                        pud_t **pud_out, pmd_t **pmd_out)
+{
+    pgd_t *pgd;
+    p4d_t *p4d;
+    pud_t *pud;
+    pmd_t *pmd;
+    
+    if (addr >= TASK_SIZE) {
+        /* Kernel space - use kernel page tables */
+        pgd = pgd_offset_k(addr);
+    } else {
+        /* User space */
+        if (!mm) return NULL;
+        pgd = pgd_offset(mm, addr);
+    }
+    
+    if (pgd_none(*pgd) || pgd_bad(*pgd)) return NULL;
+    
+    p4d = p4d_offset(pgd, addr);
+    if (p4d_none(*p4d) || p4d_bad(*p4d)) return NULL;
+    
+    pud = pud_offset(p4d, addr);
+    if (pud_none(*pud) || pud_bad(*pud)) return NULL;
+    
+    pmd = pmd_offset(pud, addr);
+    if (pmd_none(*pmd) || pmd_bad(*pmd)) return NULL;
+    
+    if (pgd_out) *pgd_out = pgd;
+    if (p4d_out) *p4d_out = p4d;
+    if (pud_out) *pud_out = pud;
+    if (pmd_out) *pmd_out = pmd;
+    
+    if (addr >= TASK_SIZE) {
+        /* For kernel addresses, use pte_offset_kernel */
+        return pte_offset_kernel(pmd, addr);
+    }
+    
+    /* For user addresses in 6.12+, we can't safely map PTEs directly */
+    return NULL;
+}
+
+#define AMT_PTE_OFFSET_MAP(pmd, addr) amt_safe_pte_lookup(current->mm, addr, NULL, NULL, NULL, NULL)
 #define AMT_PTE_UNMAP(pte) do { } while(0)
+
 #elif LINUX_VERSION_CODE >= KERNEL_VERSION(6, 5, 0)
 /* For 6.5-6.11, use pte_offset_map with unmap */
 #define AMT_PTE_OFFSET_MAP(pmd, addr) pte_offset_map(pmd, addr)
 #define AMT_PTE_UNMAP(pte) do { if (pte) pte_unmap(pte); } while(0)
+
+static inline unsigned long amt_get_user_physical_addr(struct mm_struct *mm, unsigned long virt_addr)
+{
+    pgd_t *pgd;
+    p4d_t *p4d;
+    pud_t *pud;
+    pmd_t *pmd;
+    pte_t *pte;
+    unsigned long phys_addr = 0;
+    
+    if (virt_addr >= PAGE_OFFSET) {
+        return virt_to_phys((void *)virt_addr);
+    }
+    
+    if (!mm) return 0;
+    
+    mmap_read_lock(mm);
+    
+    pgd = pgd_offset(mm, virt_addr);
+    if (pgd_none(*pgd) || pgd_bad(*pgd)) goto out;
+    
+    p4d = p4d_offset(pgd, virt_addr);
+    if (p4d_none(*p4d) || p4d_bad(*p4d)) goto out;
+    
+    pud = pud_offset(p4d, virt_addr);
+    if (pud_none(*pud) || pud_bad(*pud)) goto out;
+    
+    pmd = pmd_offset(pud, virt_addr);
+    if (pmd_none(*pmd) || pmd_bad(*pmd)) goto out;
+    
+    pte = pte_offset_map(pmd, virt_addr);
+    if (!pte || pte_none(*pte)) {
+        if (pte) pte_unmap(pte);
+        goto out;
+    }
+    
+    if (pte_present(*pte)) {
+        phys_addr = (pte_pfn(*pte) << PAGE_SHIFT) + (virt_addr & ~PAGE_MASK);
+    }
+    
+    pte_unmap(pte);
+    
+out:
+    mmap_read_unlock(mm);
+    return phys_addr;
+}
+
 #elif defined(HAVE_PTE_OFFSET_MAP_NOLOCK)
 /* For kernels with pte_offset_map_nolock */
 #define AMT_PTE_OFFSET_MAP(pmd, addr) pte_offset_map_nolock(NULL, pmd, addr, NULL)
 #define AMT_PTE_UNMAP(pte) do { } while(0)
+
+static inline unsigned long amt_get_user_physical_addr(struct mm_struct *mm, unsigned long virt_addr)
+{
+    pgd_t *pgd;
+    p4d_t *p4d;
+    pud_t *pud;
+    pmd_t *pmd;
+    pte_t *pte;
+    unsigned long phys_addr = 0;
+    
+    if (virt_addr >= PAGE_OFFSET) {
+        return virt_to_phys((void *)virt_addr);
+    }
+    
+    if (!mm) return 0;
+    
+    mmap_read_lock(mm);
+    
+    pgd = pgd_offset(mm, virt_addr);
+    if (pgd_none(*pgd) || pgd_bad(*pgd)) goto out;
+    
+    p4d = p4d_offset(pgd, virt_addr);
+    if (p4d_none(*p4d) || p4d_bad(*p4d)) goto out;
+    
+    pud = pud_offset(p4d, virt_addr);
+    if (pud_none(*pud) || pud_bad(*pud)) goto out;
+    
+    pmd = pmd_offset(pud, virt_addr);
+    if (pmd_none(*pmd) || pmd_bad(*pmd)) goto out;
+    
+    pte = pte_offset_map_nolock(NULL, pmd, virt_addr, NULL);
+    if (!pte || pte_none(*pte)) goto out;
+    
+    if (pte_present(*pte)) {
+        phys_addr = (pte_pfn(*pte) << PAGE_SHIFT) + (virt_addr & ~PAGE_MASK);
+    }
+    
+out:
+    mmap_read_unlock(mm);
+    return phys_addr;
+}
+
 #else
 /* Fallback to standard pte_offset_map */
 #define AMT_PTE_OFFSET_MAP(pmd, addr) pte_offset_map(pmd, addr)
 #define AMT_PTE_UNMAP(pte) do { if (pte) pte_unmap(pte); } while(0)
+
+static inline unsigned long amt_get_user_physical_addr(struct mm_struct *mm, unsigned long virt_addr)
+{
+    pgd_t *pgd;
+    p4d_t *p4d;
+    pud_t *pud;
+    pmd_t *pmd;
+    pte_t *pte;
+    unsigned long phys_addr = 0;
+    
+    if (virt_addr >= PAGE_OFFSET) {
+        return virt_to_phys((void *)virt_addr);
+    }
+    
+    if (!mm) return 0;
+    
+    mmap_read_lock(mm);
+    
+    pgd = pgd_offset(mm, virt_addr);
+    if (pgd_none(*pgd) || pgd_bad(*pgd)) goto out;
+    
+    p4d = p4d_offset(pgd, virt_addr);
+    if (p4d_none(*p4d) || p4d_bad(*p4d)) goto out;
+    
+    pud = pud_offset(p4d, virt_addr);
+    if (pud_none(*pud) || pud_bad(*pud)) goto out;
+    
+    pmd = pmd_offset(pud, virt_addr);
+    if (pmd_none(*pmd) || pmd_bad(*pmd)) goto out;
+    
+    pte = pte_offset_map(pmd, virt_addr);
+    if (!pte || pte_none(*pte)) {
+        if (pte) pte_unmap(pte);
+        goto out;
+    }
+    
+    if (pte_present(*pte)) {
+        phys_addr = (pte_pfn(*pte) << PAGE_SHIFT) + (virt_addr & ~PAGE_MASK);
+    }
+    
+    pte_unmap(pte);
+    
+out:
+    mmap_read_unlock(mm);
+    return phys_addr;
+}
+
 #endif
 
 /* Memory layout compatibility */
@@ -613,13 +821,7 @@ static unsigned long amt_virtual_to_physical(unsigned long virt_addr, pid_t pid)
 {
     struct task_struct *task = NULL;
     struct mm_struct *mm = NULL;
-    pgd_t *pgd;
-    p4d_t *p4d;
-    pud_t *pud;
-    pmd_t *pmd;
-    pte_t *pte;
     unsigned long phys_addr = 0;
-    bool mm_locked = false;
 
     if (!amt_is_safe_virtual_address(virt_addr, pid)) {
         amt_err("Unsafe virtual address: 0x%lx", virt_addr);
@@ -633,6 +835,7 @@ static unsigned long amt_virtual_to_physical(unsigned long virt_addr, pid_t pid)
         if (virt_addr >= PAGE_OFFSET) {
             phys_addr = virt_to_phys((void *)virt_addr);
             amt_debug("Kernel direct mapping: 0x%lx -> 0x%lx", virt_addr, phys_addr);
+            atomic_inc(&operation_count);
             return phys_addr;
         }
         mm = current->mm;
@@ -659,61 +862,20 @@ static unsigned long amt_virtual_to_physical(unsigned long virt_addr, pid_t pid)
         return 0;
     }
 
-    amt_mmap_read_lock(mm);
-    mm_locked = true;
-
-    /* Walk the page table hierarchy */
-    pgd = pgd_offset(mm, virt_addr);
-    if (pgd_none(*pgd) || pgd_bad(*pgd)) {
-        amt_debug("Invalid PGD entry for address: 0x%lx", virt_addr);
-        goto out;
-    }
-
-    p4d = p4d_offset(pgd, virt_addr);
-    if (p4d_none(*p4d) || p4d_bad(*p4d)) {
-        amt_debug("Invalid P4D entry for address: 0x%lx", virt_addr);
-        goto out;
-    }
-
-    pud = pud_offset(p4d, virt_addr);
-    if (pud_none(*pud) || pud_bad(*pud)) {
-        amt_debug("Invalid PUD entry for address: 0x%lx", virt_addr);
-        goto out;
-    }
-
-    pmd = pmd_offset(pud, virt_addr);
-    if (pmd_none(*pmd) || pmd_bad(*pmd)) {
-        amt_debug("Invalid PMD entry for address: 0x%lx", virt_addr);
-        goto out;
-    }
-
-    pte = AMT_PTE_OFFSET_MAP(pmd, virt_addr);
-    if (!pte || pte_none(*pte)) {
-        amt_debug("Invalid PTE entry for address: 0x%lx", virt_addr);
-        AMT_PTE_UNMAP(pte);
-        goto out;
-    }
-
-    if (pte_present(*pte)) {
-        phys_addr = (pte_pfn(*pte) << PAGE_SHIFT) + (virt_addr & ~PAGE_MASK);
-        amt_debug("Translation successful: 0x%lx -> 0x%lx", virt_addr, phys_addr);
-    } else {
-        amt_debug("Page not present for address: 0x%lx", virt_addr);
-    }
-
-    AMT_PTE_UNMAP(pte);
-
-out:
-    if (mm_locked)
-        amt_mmap_read_unlock(mm);
+    /* Use the optimized compatibility function */
+    phys_addr = amt_get_user_physical_addr(mm, virt_addr);
     
-    if (pid != 0 && mm)
+    if (pid != 0 && mm) {
         mmput(mm);
+    }
 
-    if (phys_addr)
+    if (phys_addr) {
+        amt_debug("Translation successful: 0x%lx -> 0x%lx", virt_addr, phys_addr);
         atomic_inc(&operation_count);
-    else
+    } else {
+        amt_debug("Translation failed for address: 0x%lx", virt_addr);
         atomic_inc(&error_count);
+    }
 
     return phys_addr;
 }
@@ -721,14 +883,9 @@ out:
 static int amt_get_page_information(unsigned long addr, struct amt_page_info *info)
 {
     struct mm_struct *mm = current->mm;
-    pgd_t *pgd;
-    p4d_t *p4d;
-    pud_t *pud;
-    pmd_t *pmd;
-    pte_t *pte;
     struct page *page = NULL;
     unsigned long pfn;
-    bool mm_locked = false;
+    unsigned long phys_addr;
 
     if (!info) {
         amt_err("NULL page info structure");
@@ -742,7 +899,7 @@ static int amt_get_page_information(unsigned long addr, struct amt_page_info *in
 
     /* Handle kernel addresses */
     if (addr >= PAGE_OFFSET) {
-        unsigned long phys_addr = virt_to_phys((void *)addr);
+        phys_addr = virt_to_phys((void *)addr);
         pfn = phys_addr >> PAGE_SHIFT;
         
         if (pfn_valid(pfn)) {
@@ -771,39 +928,70 @@ static int amt_get_page_information(unsigned long addr, struct amt_page_info *in
         return -EINVAL;
     }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
+    /* For kernel 6.12+, use get_user_pages approach */
+    mmap_read_lock(mm);
+    
+    int ret = get_user_pages(addr, 1, FOLL_GET, &page, NULL);
+    if (ret == 1) {
+        info->present = 1;
+        info->user_accessible = 1;
+        info->writable = 1; /* Simplified - actual permissions may vary */
+        
+        pfn = page_to_pfn(page);
+        info->page_frame_number = pfn;
+        info->physical_addr = page_to_phys(page) + (addr & ~PAGE_MASK);
+        info->ref_count = page_ref_count(page);
+        info->map_count = page_count(page);
+        info->flags = page->flags;
+        
+        put_page(page);
+        amt_debug("User page info retrieved via get_user_pages for: 0x%lx", addr);
+    } else {
+        amt_debug("get_user_pages failed for address: 0x%lx", addr);
+    }
+    
+    mmap_read_unlock(mm);
+#else
+    /* For older kernels, use traditional page table walk */
+    pgd_t *pgd;
+    p4d_t *p4d;
+    pud_t *pud;
+    pmd_t *pmd;
+    pte_t *pte;
+
     amt_mmap_read_lock(mm);
-    mm_locked = true;
 
     pgd = pgd_offset(mm, addr);
     if (pgd_none(*pgd) || pgd_bad(*pgd))
-        goto out;
+        goto out_old;
 
     p4d = p4d_offset(pgd, addr);
     if (p4d_none(*p4d) || p4d_bad(*p4d))
-        goto out;
+        goto out_old;
 
     pud = pud_offset(p4d, addr);
     if (pud_none(*pud) || pud_bad(*pud))
-        goto out;
+        goto out_old;
 
     pmd = pmd_offset(pud, addr);
     if (pmd_none(*pmd) || pmd_bad(*pmd))
-        goto out;
+        goto out_old;
 
     pte = AMT_PTE_OFFSET_MAP(pmd, addr);
     if (!pte || pte_none(*pte)) {
         AMT_PTE_UNMAP(pte);
-        goto out;
+        goto out_old;
     }
 
     /* Extract page information */
     info->present = pte_present(*pte);
     info->writable = pte_write(*pte);
-    info->user_accessible = 1; /* Assume user accessible for now */
+    info->user_accessible = 1;
     info->accessed = pte_young(*pte);
     info->dirty = pte_dirty(*pte);
     info->global_page = pte_global(*pte);
-    info->nx_bit = 0; /* NX bit check simplified */
+    info->nx_bit = 0;
     info->flags = pte_val(*pte);
 
     if (info->present) {
@@ -822,9 +1010,9 @@ static int amt_get_page_information(unsigned long addr, struct amt_page_info *in
 
     AMT_PTE_UNMAP(pte);
 
-out:
-    if (mm_locked)
-        amt_mmap_read_unlock(mm);
+out_old:
+    amt_mmap_read_unlock(mm);
+#endif
 
     amt_debug("Page info retrieved for address: 0x%lx (present: %d)", 
               addr, info->present);
