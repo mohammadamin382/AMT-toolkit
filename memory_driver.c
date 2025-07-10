@@ -125,6 +125,35 @@
 /* Additional compatibility for very new kernels */
 /* In kernel 6.12+, pte_offset_map behavior changed */
 #undef HAVE_PTE_OFFSET_MAP_NOLOCK
+/* Define new PTE API macros for 6.12+ */
+#define HAVE_KERNEL_6_12_PTE_API
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 11, 0)
+#define HAVE_KERNEL_6_11_PLUS
+#endif
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 8, 0)
+#define HAVE_KERNEL_6_8_PLUS
+#endif
+
+/* PTE mapping compatibility macros */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
+/* For 6.12+, use direct pte_offset_kernel */
+#define AMT_PTE_OFFSET_MAP(pmd, addr) pte_offset_kernel(pmd, addr)
+#define AMT_PTE_UNMAP(pte) do { } while(0)
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(6, 5, 0)
+/* For 6.5-6.11, use pte_offset_map with unmap */
+#define AMT_PTE_OFFSET_MAP(pmd, addr) pte_offset_map(pmd, addr)
+#define AMT_PTE_UNMAP(pte) do { if (pte) pte_unmap(pte); } while(0)
+#elif defined(HAVE_PTE_OFFSET_MAP_NOLOCK)
+/* For kernels with pte_offset_map_nolock */
+#define AMT_PTE_OFFSET_MAP(pmd, addr) pte_offset_map_nolock(NULL, pmd, addr, NULL)
+#define AMT_PTE_UNMAP(pte) do { } while(0)
+#else
+/* Fallback to standard pte_offset_map */
+#define AMT_PTE_OFFSET_MAP(pmd, addr) pte_offset_map(pmd, addr)
+#define AMT_PTE_UNMAP(pte) do { if (pte) pte_unmap(pte); } while(0)
 #endif
 
 /* Memory layout compatibility */
@@ -352,36 +381,7 @@ static inline int amt_access_ok(const void __user *addr, unsigned long size)
 #endif
 }
 
-static inline pte_t *amt_pte_offset_map(pmd_t *pmd, unsigned long addr)
-{
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
-    /* For kernel 6.12+, use the new pte_offset_map function */
-    return pte_offset_map(pmd, addr);
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(6, 5, 0)
-    /* For kernels 6.5-6.11, use pte_offset_map */
-    return pte_offset_map(pmd, addr);
-#elif defined(HAVE_PTE_OFFSET_MAP_NOLOCK)
-    return pte_offset_map_nolock(NULL, pmd, addr, NULL);
-#else
-    return pte_offset_map(pmd, addr);
-#endif
-}
-
-static inline void amt_pte_unmap(pte_t *pte)
-{
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)
-    /* For kernel 6.12+, always use pte_unmap */
-    if (pte)
-        pte_unmap(pte);
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(6, 5, 0)
-    /* For kernels 6.5-6.11, always use pte_unmap */
-    if (pte)
-        pte_unmap(pte);
-#elif !defined(HAVE_PTE_OFFSET_MAP_NOLOCK)
-    if (pte)
-        pte_unmap(pte);
-#endif
-}
+/* Use the compatibility macros instead of functions */
 
 /* Safety validation functions */
 static bool amt_is_safe_physical_address(unsigned long phys_addr, size_t size)
@@ -687,11 +687,10 @@ static unsigned long amt_virtual_to_physical(unsigned long virt_addr, pid_t pid)
         goto out;
     }
 
-    pte = amt_pte_offset_map(pmd, virt_addr);
+    pte = AMT_PTE_OFFSET_MAP(pmd, virt_addr);
     if (!pte || pte_none(*pte)) {
         amt_debug("Invalid PTE entry for address: 0x%lx", virt_addr);
-        if (pte)
-            amt_pte_unmap(pte);
+        AMT_PTE_UNMAP(pte);
         goto out;
     }
 
@@ -702,7 +701,7 @@ static unsigned long amt_virtual_to_physical(unsigned long virt_addr, pid_t pid)
         amt_debug("Page not present for address: 0x%lx", virt_addr);
     }
 
-    amt_pte_unmap(pte);
+    AMT_PTE_UNMAP(pte);
 
 out:
     if (mm_locked)
@@ -791,10 +790,9 @@ static int amt_get_page_information(unsigned long addr, struct amt_page_info *in
     if (pmd_none(*pmd) || pmd_bad(*pmd))
         goto out;
 
-    pte = amt_pte_offset_map(pmd, addr);
+    pte = AMT_PTE_OFFSET_MAP(pmd, addr);
     if (!pte || pte_none(*pte)) {
-        if (pte)
-            amt_pte_unmap(pte);
+        AMT_PTE_UNMAP(pte);
         goto out;
     }
 
@@ -822,7 +820,7 @@ static int amt_get_page_information(unsigned long addr, struct amt_page_info *in
         }
     }
 
-    amt_pte_unmap(pte);
+    AMT_PTE_UNMAP(pte);
 
 out:
     if (mm_locked)
