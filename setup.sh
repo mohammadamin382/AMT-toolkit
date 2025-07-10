@@ -319,7 +319,6 @@ install_dependencies() {
     
     if command -v apt-get &> /dev/null; then
         print_info "استفاده از apt-get..."
-        apt-get update -qq
         apt-get install -y build-essential $COMMON_PACKAGES
         apt-get install -y python3-dev python3-venv linux-headers-generic
     elif command -v dnf &> /dev/null; then
