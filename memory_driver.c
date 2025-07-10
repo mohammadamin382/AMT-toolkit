@@ -16,6 +16,7 @@
  * Version: 4.0 Professional
  */
 
+#include <linux/atomic.h>
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -446,7 +447,7 @@ static int amt_read_physical_memory(unsigned long phys_addr, void *buffer, size_
     void __iomem *mapped_addr;
     struct page *page;
     unsigned long pfn;
-    size_t bytes_read = 0;
+    size_t local_bytes_read = 0;
     size_t chunk_size;
     unsigned long current_addr = phys_addr;
     char *buf_ptr = (char *)buffer;
@@ -464,7 +465,7 @@ static int amt_read_physical_memory(unsigned long phys_addr, void *buffer, size_
 
     amt_verbose("Reading %zu bytes from physical address 0x%lx", size, phys_addr);
 
-    while (bytes_read < size) {
+    while (local_bytes_read < size) {
         pfn = current_addr >> PAGE_SHIFT;
         
         if (!pfn_valid(pfn)) {
@@ -480,7 +481,7 @@ static int amt_read_physical_memory(unsigned long phys_addr, void *buffer, size_
             return -EINVAL;
         }
 
-        chunk_size = min(size - bytes_read, PAGE_SIZE - (current_addr & ~PAGE_MASK));
+        chunk_size = min(size - local_bytes_read, PAGE_SIZE - (current_addr & ~PAGE_MASK));
 
         mapped_addr = ioremap(current_addr, chunk_size);
         if (!mapped_addr) {
@@ -489,10 +490,10 @@ static int amt_read_physical_memory(unsigned long phys_addr, void *buffer, size_
             return -ENOMEM;
         }
 
-        memcpy_fromio(buf_ptr + bytes_read, mapped_addr, chunk_size);
+        memcpy_fromio(buf_ptr + local_bytes_read, mapped_addr, chunk_size);
         iounmap(mapped_addr);
 
-        bytes_read += chunk_size;
+        local_bytes_read += chunk_size;
         current_addr += chunk_size;
     }
 
@@ -508,7 +509,7 @@ static int amt_write_physical_memory(unsigned long phys_addr, const void *buffer
     void __iomem *mapped_addr;
     struct page *page;
     unsigned long pfn;
-    size_t bytes_written = 0;
+    size_t local_bytes_written = 0;
     size_t chunk_size;
     unsigned long current_addr = phys_addr;
     const char *buf_ptr = (const char *)buffer;
@@ -526,7 +527,7 @@ static int amt_write_physical_memory(unsigned long phys_addr, const void *buffer
 
     amt_verbose("Writing %zu bytes to physical address 0x%lx", size, phys_addr);
 
-    while (bytes_written < size) {
+    while (local_bytes_written < size) {
         pfn = current_addr >> PAGE_SHIFT;
         
         if (!pfn_valid(pfn)) {
@@ -551,7 +552,7 @@ static int amt_write_physical_memory(unsigned long phys_addr, const void *buffer
             }
         }
 
-        chunk_size = min(size - bytes_written, PAGE_SIZE - (current_addr & ~PAGE_MASK));
+        chunk_size = min(size - local_bytes_written, PAGE_SIZE - (current_addr & ~PAGE_MASK));
 
         mapped_addr = ioremap(current_addr, chunk_size);
         if (!mapped_addr) {
@@ -560,11 +561,11 @@ static int amt_write_physical_memory(unsigned long phys_addr, const void *buffer
             return -ENOMEM;
         }
 
-        memcpy_toio(mapped_addr, buf_ptr + bytes_written, chunk_size);
+        memcpy_toio(mapped_addr, buf_ptr + local_bytes_written, chunk_size);
         wmb(); /* Write memory barrier */
         iounmap(mapped_addr);
 
-        bytes_written += chunk_size;
+        local_bytes_written += chunk_size;
         current_addr += chunk_size;
     }
 
