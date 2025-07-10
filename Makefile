@@ -1,4 +1,3 @@
-
 # Advanced Memory Toolkit (AMT) - Professional Makefile
 # Supports multiple kernel versions and build configurations
 
@@ -55,11 +54,15 @@ module:
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) modules
 
 # Clean build artifacts
+install-headers:
+	sudo cp amt_memory.h /usr/include/
+	@echo "Header file installed to /usr/include/"
+
 clean:
-	@echo "Cleaning build artifacts..."
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) clean
-	rm -f *.mod.c *.mod *.o *.ko *.symvers *.order
-	rm -rf .tmp_versions
+	rm -f *.pyc __pycache__ -rf
+	rm -f test_output.txt memory_dump.bin
+	rm -f /usr/include/amt_memory.h 2>/dev/null || true
 
 # Install the module
 install: module
@@ -215,7 +218,7 @@ check-kernel:
 		echo "Please install kernel headers for your kernel version."; \
 		echo ""; \
 		echo "Ubuntu/Debian: apt-get install linux-headers-$(KERNELVER)"; \
-		echo "CentOS/RHEL:   yum install kernel-devel-$(KERNELVER)"; \
+		echo "CentOS/RHEL:   yum install kernel-headers-$(KERNELVER)"; \
 		echo "Fedora:        dnf install kernel-devel-$(KERNELVER)"; \
 		echo "Arch:          pacman -S linux-headers"; \
 		exit 1; \
