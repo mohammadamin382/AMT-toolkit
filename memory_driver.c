@@ -99,8 +99,7 @@
 #define IOCTL_VIRT_TO_PHYS _IOWR('M', 3, struct addr_translation)
 #define IOCTL_PHYS_TO_VIRT _IOWR('M', 4, struct addr_translation)
 #define IOCTL_GET_PAGE_INFO _IOWR('M', 5, struct page_info)
-#define IOCTL_ENCRYPT_MEMORY _IOWR('M', 6, struct mem_encryption)
-#define IOCTL_DECRYPT_MEMORY _IOWR('M', 7, struct mem_encryption)
+
 
 // ساختارها - اینا مثل قالب کیک هستن، شکل داده‌ها رو مشخص می‌کنن! 🧁
 struct mem_operation {
@@ -134,15 +133,7 @@ struct page_info {
     unsigned long cache_type;  // نوع کش - سریع یا کند؟ ⚡
 };
 
-struct mem_encryption {
-    unsigned long addr;        // آدرس حافظه - کجا رو رمز کنیم؟ 🔐
-    unsigned long size;        // اندازه - چقدر رمز کنیم؟ 📐
-    char key[32];             // کلید رمزنگاری - رمز مخفی! 🗝️
-    char iv[16];              // بردار اولیه - شروع تصادفی! 🎲
-    int algorithm;            // الگوریتم - AES یا ChaCha20؟ 🧮
-    char encrypted_data[BUFFER_SIZE];  // داده رمزشده - حالا دیگه مخفیه! 🤐
-    int result;               // نتیجه - کار درست انجام شد؟ ✨
-};
+
 
 // متغیرهای سراسری - اینا مثل حافظه مشترک هستن! 🧠
 static int major_number;                    // شماره اصلی دستگاه 🔢
@@ -350,11 +341,7 @@ static unsigned long virtual_to_physical_addr(unsigned long virt_addr, pid_t pid
 static unsigned long physical_to_virtual_addr(unsigned long phys_addr, pid_t pid);
 static int get_page_information(unsigned long addr, struct page_info *info);
 
-// فقط اگه crypto موجود باشه این توابع رو تعریف می‌کنیم
-#ifndef CRYPTO_NOT_AVAILABLE
-static int encrypt_memory_region(struct mem_encryption *enc);
-static int decrypt_memory_region(struct mem_encryption *enc);
-#endif
+
 
 // عملیات فایل - این جدول مثل فهرست تلفن توابع هست! 📞
 static struct file_operations fops = {
@@ -755,49 +742,7 @@ out:
     return 0;
 }
 
-// توابع رمزنگاری - فقط اگه سیستم پشتیبانی کنه! 🔐
-#ifndef CRYPTO_NOT_AVAILABLE
 
-// رمزنگاری حافظه - جادوی مدرن! ✨
-static int encrypt_memory_region(struct mem_encryption *enc) {
-    // برای سادگی، فقط یه XOR ساده انجام می‌دیم
-    // تو نسخه‌های قدیمی کرنل، crypto پیچیده‌ست! 🤷
-    void __iomem *mapped_addr;
-    unsigned long i;
-
-    advmem_debug("شروع رمزنگاری ساده! 🔒");
-
-    if (!is_safe_operation_size(enc->size) || !is_safe_physical_address(enc->addr, enc->size)) {
-        return -EPERM;
-    }
-
-    mapped_addr = ioremap(enc->addr, enc->size);
-    if (!mapped_addr) {
-        advmem_err("نگاشت برای رمزنگاری شکست خورد! 💥");
-        return -ENOMEM;
-    }
-
-    // XOR ساده با کلید
-    for (i = 0; i < enc->size; i++) {
-        char byte = ioread8(mapped_addr + i);
-        byte ^= enc->key[i % 32];  // XOR با کلید
-        iowrite8(byte, mapped_addr + i);
-        enc->encrypted_data[i] = byte;
-    }
-
-    iounmap(mapped_addr);
-    advmem_info("رمزنگاری ساده انجام شد! 🎉");
-    return 0;
-}
-
-// رمزگشایی حافظه - برعکس رمزنگاری! 🔓
-static int decrypt_memory_region(struct mem_encryption *enc) {
-    // همون XOR رو دوباره اعمال می‌کنیم
-    advmem_debug("شروع رمزگشایی ساده! 🔓");
-    return encrypt_memory_region(enc);  // XOR خودش معکوس خودشه! 😎
-}
-
-#endif
 
 // تابع اصلی IOCTL - دل برنامه! ❤️
 static long device_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
@@ -805,7 +750,7 @@ static long device_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
     struct mem_operation *mem_op = NULL;
     struct addr_translation *addr_trans = NULL;
     struct page_info *page_inf = NULL;
-    struct mem_encryption *mem_enc = NULL;
+    
     int ret = 0;
 
     // بررسی امنیتی: نیاز به مجوز CAP_SYS_ADMIN
@@ -949,53 +894,7 @@ static long device_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
             kfree(page_inf);
             break;
 
-#ifndef CRYPTO_NOT_AVAILABLE
-        case IOCTL_ENCRYPT_MEMORY:
-            advmem_debug("درخواست رمزنگاری! 🔒");
-            mem_enc = kmalloc(sizeof(*mem_enc), GFP_KERNEL);
-            if (!mem_enc) {
-                ret = -ENOMEM;
-                break;
-            }
-            
-            if (copy_from_user(mem_enc, (void*)arg, sizeof(*mem_enc))) {
-                ret = -EFAULT;
-                kfree(mem_enc);
-                break;
-            }
 
-            ret = encrypt_memory_region(mem_enc);
-            mem_enc->result = ret;
-
-            if (copy_to_user((void*)arg, mem_enc, sizeof(*mem_enc))) {
-                ret = -EFAULT;
-            }
-            kfree(mem_enc);
-            break;
-
-        case IOCTL_DECRYPT_MEMORY:
-            advmem_debug("درخواست رمزگشایی! 🔓");
-            mem_enc = kmalloc(sizeof(*mem_enc), GFP_KERNEL);
-            if (!mem_enc) {
-                ret = -ENOMEM;
-                break;
-            }
-            
-            if (copy_from_user(mem_enc, (void*)arg, sizeof(*mem_enc))) {
-                ret = -EFAULT;
-                kfree(mem_enc);
-                break;
-            }
-
-            ret = decrypt_memory_region(mem_enc);
-            mem_enc->result = ret;
-
-            if (copy_to_user((void*)arg, mem_enc, sizeof(*mem_enc))) {
-                ret = -EFAULT;
-            }
-            kfree(mem_enc);
-            break;
-#endif
 
         default:
             advmem_err("دستور IOCTL ناشناخته: 0x%x 🤔", cmd);
