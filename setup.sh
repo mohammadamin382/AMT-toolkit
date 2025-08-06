@@ -644,239 +644,37 @@ except Exception as e:
     }
 }
 
-# Create update script
-create_update_script() {
-    print_step "ایجاد اسکریپت آپدیت..."
+# Setup PATH environment
+setup_path() {
+    print_step "تنظیم PATH محیط..."
     
-    cat > update.sh << 'EOF'
-#!/bin/bash
-# 🔄 Advanced Memory Toolkit Update Script v2.0
-
-# Color variables
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-PURPLE='\033[0;35m'
-CYAN='\033[0;36m'
-NC='\033[0m'
-
-# Global variables
-REPO_URL="https://github.com/mohammadamin382/AMT-toolkit.git"
-CURRENT_DIR=$(pwd)
-BACKUP_DIR="$HOME/.amt_backup"
-VERSION_FILE=".amt_version"
-INSTALL_FILE=".amt_installed"
-CURRENT_VERSION="2.0.0"
-
-print_step() { echo -e "${BLUE}🔧 $1${NC}"; }
-print_success() { echo -e "${GREEN}✅ $1${NC}"; }
-print_warning() { echo -e "${YELLOW}⚠️  $1${NC}"; }
-print_error() { echo -e "${RED}❌ $1${NC}"; }
-print_info() { echo -e "${CYAN}ℹ️  $1${NC}"; }
-
-print_banner() {
-    echo -e "${PURPLE}"
-    echo "╔══════════════════════════════════════════════════════════════╗"
-    echo "║                    AMT Update Script v2.0                   ║"
-    echo "║              Advanced Memory Toolkit Updater                ║"
-    echo "╚══════════════════════════════════════════════════════════════╝"
-    echo -e "${NC}"
-}
-
-# Check if running as root
-check_root() {
-    if [[ $EUID -ne 0 ]]; then
-        print_error "این اسکریپت باید با root اجرا بشه!"
-        print_info "استفاده: sudo bash update.sh"
-        exit 1
-    fi
-}
-
-# Check if AMT is installed
-check_installation() {
-    if [ ! -f "$INSTALL_FILE" ]; then
-        print_error "AMT نصب نشده است!"
-        print_info "ابتدا setup.sh را اجرا کنید"
-        exit 1
-    fi
+    # Add current directory to PATH
+    CURRENT_PATH=$(pwd)
     
-    INSTALLED_VERSION=$(cat "$INSTALL_FILE" 2>/dev/null || echo "unknown")
-    print_info "نسخه فعلی: $INSTALLED_VERSION"
-}
-
-# Check internet connectivity
-check_internet() {
-    print_step "بررسی اتصال اینترنت..."
-    if ping -c 1 8.8.8.8 &> /dev/null; then
-        print_success "اتصال اینترنت فعال! 🌐"
-        return 0
-    else
-        print_error "اتصال اینترنت برقرار نیست! 📡"
-        return 1
-    fi
-}
-
-# Check for updates
-check_for_updates() {
-    print_step "بررسی آپدیت‌های جدید..."
+    # Add to current session
+    export PATH="$PATH:$CURRENT_PATH"
     
-    if ! check_internet; then
-        print_error "نمی‌تونم آپدیت رو چک کنم بدون اینترنت!"
-        exit 1
-    fi
-    
-    TEMP_DIR=$(mktemp -d)
-    cd "$TEMP_DIR"
-    
-    print_info "دانلود اطلاعات آپدیت..."
-    if git clone --depth 1 "$REPO_URL" update_check &> /dev/null; then
-        cd update_check
-        if [ -f "setup.sh" ]; then
-            NEW_VERSION=$(grep 'CURRENT_VERSION=' setup.sh | cut -d'"' -f2)
-            OLD_VERSION=$(cat "$CURRENT_DIR/$INSTALL_FILE" 2>/dev/null || echo "unknown")
-            
-            print_info "نسخه فعلی: $OLD_VERSION"
-            print_info "نسخه جدید: $NEW_VERSION"
-            
-            if [ "$NEW_VERSION" != "$OLD_VERSION" ]; then
-                print_success "آپدیت جدید موجود است! 🎉"
-                cd "$CURRENT_DIR"
-                rm -rf "$TEMP_DIR"
-                return 0
-            else
-                print_success "شما آخرین نسخه رو دارید! ✨"
-                cd "$CURRENT_DIR"
-                rm -rf "$TEMP_DIR"
-                return 1
-            fi
+    # Add to user's bash profile
+    if [ -f "$HOME/.bashrc" ]; then
+        if ! grep -q "AMT-toolkit" "$HOME/.bashrc"; then
+            echo "" >> "$HOME/.bashrc"
+            echo "# AMT-toolkit PATH" >> "$HOME/.bashrc"
+            echo "export PATH=\"\$PATH:$CURRENT_PATH\"" >> "$HOME/.bashrc"
+            print_success "PATH به .bashrc اضافه شد! 🛤️"
         fi
     fi
     
-    cd "$CURRENT_DIR"
-    rm -rf "$TEMP_DIR"
-    print_error "نمی‌تونم آپدیت رو چک کنم!"
-    return 1
-}
-
-# Perform update
-perform_update() {
-    print_step "شروع آپدیت..."
-    
-    # Create backup
-    print_info "ایجاد نسخه پشتیبان..."
-    mkdir -p "$BACKUP_DIR"
-    BACKUP_NAME="amt_backup_$(date +%Y%m%d_%H%M%S)"
-    cp -r "$CURRENT_DIR" "$BACKUP_DIR/$BACKUP_NAME"
-    print_success "نسخه پشتیبان: $BACKUP_DIR/$BACKUP_NAME"
-    
-    # Download latest version
-    print_info "دانلود آخرین نسخه..."
-    TEMP_UPDATE_DIR=$(mktemp -d)
-    cd "$TEMP_UPDATE_DIR"
-    
-    if git clone "$REPO_URL" amt_update; then
-        print_success "دانلود موفقیت‌آمیز! 📥"
-        
-        # Stop current module
-        if lsmod | grep -q "memory_driver"; then
-            print_info "متوقف کردن ماژول فعلی..."
-            rmmod memory_driver 2>/dev/null || true
+    # Add to user's profile
+    if [ -f "$HOME/.profile" ]; then
+        if ! grep -q "AMT-toolkit" "$HOME/.profile"; then
+            echo "" >> "$HOME/.profile"
+            echo "# AMT-toolkit PATH" >> "$HOME/.profile"
+            echo "export PATH=\"\$PATH:$CURRENT_PATH\"" >> "$HOME/.profile"
+            print_success "PATH به .profile اضافه شد! 🛤️"
         fi
-        
-        # Clean old build files
-        cd "$CURRENT_DIR"
-        make -f driver_Makefile clean 2>/dev/null || true
-        
-        # Backup important files
-        cp "$INSTALL_FILE" "${INSTALL_FILE}.bak" 2>/dev/null || true
-        
-        # Copy new files (exclude .git and preserve some files)
-        print_info "کپی فایل‌های جدید..."
-        rsync -av --exclude='.git' --exclude="$INSTALL_FILE" "$TEMP_UPDATE_DIR/amt_update/" "$CURRENT_DIR/"
-        chmod +x "$CURRENT_DIR/setup.sh"
-        chmod +x "$CURRENT_DIR/update.sh"
-        
-        # Update version
-        NEW_VERSION=$(grep 'CURRENT_VERSION=' setup.sh | cut -d'"' -f2)
-        echo "$NEW_VERSION" > "$INSTALL_FILE"
-        
-        print_success "آپدیت فایل‌ها کامل شد! 🎉"
-        
-        # Rebuild and reinstall
-        print_info "ریبیلد و نصب مجدد..."
-        
-        # Source the new setup functions
-        . "./setup.sh" --source-only 2>/dev/null || {
-            print_warning "نمی‌تونم setup.sh جدید رو لود کنم، از روش قدیمی استفاده می‌کنم"
-            # Fallback: basic reinstallation
-            make -f driver_Makefile clean
-            make -f driver_Makefile
-            insmod memory_driver.ko
-            chmod 666 /dev/advanced_memory 2>/dev/null || true
-        }
-        
-        # Cleanup
-        rm -rf "$TEMP_UPDATE_DIR"
-        
-        print_success "آپدیت کامل شد! 🚀"
-        print_info "نسخه جدید: $NEW_VERSION"
-        
-    else
-        print_error "دانلود آپدیت شکست خورد! 💥"
-        cd "$CURRENT_DIR"
-        rm -rf "$TEMP_UPDATE_DIR"
-        exit 1
     fi
-}
-
-# Main function
-main() {
-    print_banner
     
-    check_root
-    check_installation
-    
-    if check_for_updates; then
-        echo -n "آیا می‌خواهید آپدیت کنید؟ (y/n): "
-        read -r response
-        if [[ "$response" =~ ^[Yy]$ ]]; then
-            perform_update
-        else
-            print_info "آپدیت لغو شد"
-        fi
-    else
-        print_info "آپدیت جدیدی موجود نیست"
-    fi
-}
-
-# Handle command line arguments
-case "${1:-}" in
-    --check)
-        check_root
-        check_installation
-        check_for_updates
-        ;;
-    --force)
-        check_root
-        check_installation
-        perform_update
-        ;;
-    --help)
-        echo "استفاده: sudo bash update.sh [options]"
-        echo "Options:"
-        echo "  --check    فقط بررسی آپدیت"
-        echo "  --force    آپدیت اجباری"
-        echo "  --help     نمایش راهنما"
-        ;;
-    *)
-        main
-        ;;
-esac
-EOF
-
-    chmod +x update.sh
-    print_success "اسکریپت آپدیت ایجاد شد: update.sh 🔄"
+    print_info "PATH تنظیم شد: $CURRENT_PATH"
 }
 
 # Create enhanced uninstall script
@@ -972,9 +770,7 @@ show_usage_guide() {
     print_info "🔄 تبدیل آدرس:"
     echo "   sudo python3 memory_toolkit.py --v2p 0xffffffff81000000"
     echo ""
-    print_info "🔄 آپدیت سیستم:"
-    echo "   sudo bash update.sh"
-    echo ""
+    
     print_info "🗑️ حذف کامل:"
     echo "   sudo bash uninstall.sh"
     echo ""
@@ -993,7 +789,7 @@ install_amt() {
     setup_permissions
     
     if comprehensive_test; then
-        create_update_script
+        setup_path
         create_uninstall_script
         mark_installation_successful
         
@@ -1024,7 +820,6 @@ main() {
         
         echo ""
         print_success "🎊 نصب تمام شد!"
-        print_info "💡 برای آپدیت: sudo bash update.sh"
         print_info "💡 برای حذف: sudo bash uninstall.sh"
         print_warning "⚠️ With great power comes great responsibility!"
     fi
