@@ -71,22 +71,13 @@ class PageInfo(ctypes.Structure):
         ("cache_type", ctypes.c_ulong)
     ]
 
-class MemoryEncryption(ctypes.Structure):
-    _fields_ = [
-        ("addr", ctypes.c_ulong),
-        ("size", ctypes.c_ulong),
-        ("key", ctypes.c_char * 32),
-        ("iv", ctypes.c_char * 16),
-        ("algorithm", ctypes.c_int),
-        ("encrypted_data", ctypes.c_char * BUFFER_SIZE),
-        ("result", ctypes.c_int)
-    ]
+
 
 # حالا که کلاس‌ها تعریف شدن، اندازه‌هاشون رو محاسبه می‌کنیم
 MEM_OPERATION_SIZE = ctypes.sizeof(MemoryOperation)
 ADDR_TRANSLATION_SIZE = ctypes.sizeof(AddressTranslation)
 PAGE_INFO_SIZE = ctypes.sizeof(PageInfo)
-MEM_ENCRYPTION_SIZE = ctypes.sizeof(MemoryEncryption)
+
 
 # تعریف صحیح IOCTLها - حالا با کرنل مطابقت داره! 🎯
 IOCTL_READ_PHYS_MEM = _IOR('M', 1, MEM_OPERATION_SIZE)
@@ -94,8 +85,7 @@ IOCTL_WRITE_PHYS_MEM = _IOW('M', 2, MEM_OPERATION_SIZE)
 IOCTL_VIRT_TO_PHYS = _IOWR('M', 3, ADDR_TRANSLATION_SIZE)
 IOCTL_PHYS_TO_VIRT = _IOWR('M', 4, ADDR_TRANSLATION_SIZE)
 IOCTL_GET_PAGE_INFO = _IOWR('M', 5, PAGE_INFO_SIZE)
-IOCTL_ENCRYPT_MEMORY = _IOWR('M', 6, MEM_ENCRYPTION_SIZE)
-IOCTL_DECRYPT_MEMORY = _IOWR('M', 7, MEM_ENCRYPTION_SIZE)
+
 
 class AdvancedMemoryToolkit:
     """Professional Memory Operations Framework"""
@@ -314,116 +304,7 @@ class AdvancedMemoryToolkit:
             print(f"❌ Failed to get page info: {e}")
             return None
 
-    def encrypt_memory(self, addr: int, size: int, key: bytes, 
-                      algorithm: str = 'aes', iv: bytes = None) -> Optional[bytes]:
-        """
-        Encrypt memory region with real cryptographic algorithms
-
-        Args:
-            addr: Physical memory address
-            size: Size of memory region
-            key: Encryption key (32 bytes)
-            algorithm: 'aes' or 'chacha20'
-            iv: Initialization vector (16 bytes)
-
-        Returns:
-            Encrypted data or None on error
-        """
-        if len(key) != 32:
-            print("❌ Key must be exactly 32 bytes")
-            return None
-
-        if iv is None:
-            iv = os.urandom(16)
-        elif len(iv) != 16:
-            print("❌ IV must be exactly 16 bytes")
-            return None
-
-        if size > BUFFER_SIZE:
-            print(f"❌ Size {size} exceeds maximum buffer size {BUFFER_SIZE}")
-            return None
-
-        # Safety validation
-        if not self._validate_safety('encrypt_memory', addr=addr, size=size, algorithm=algorithm):
-            return False
-
-        mem_enc = MemoryEncryption()
-        mem_enc.addr = addr
-        mem_enc.size = size
-        mem_enc.algorithm = 0 if algorithm == 'aes' else 1
-
-        # Copy key and IV - proper ctypes conversion
-        ctypes.memmove(ctypes.addressof(mem_enc.key), key, len(key))
-        ctypes.memmove(ctypes.addressof(mem_enc.iv), iv, len(iv))
-
-        try:
-            fcntl.ioctl(self.device_fd, IOCTL_ENCRYPT_MEMORY, mem_enc)
-
-            if mem_enc.result == 0:
-                self.operation_count += 1
-                print(f"🔒 Successfully encrypted {size} bytes with {algorithm.upper()}")
-                return bytes(mem_enc.encrypted_data[:size])
-            else:
-                print(f"❌ Encryption failed with error code: {mem_enc.result}")
-                return None
-
-        except OSError as e:
-            print(f"❌ Memory encryption failed: {e}")
-            return None
-
-    def decrypt_memory(self, addr: int, size: int, key: bytes, 
-                      algorithm: str = 'aes', iv: bytes = None) -> Optional[bytes]:
-        """
-        Decrypt memory region with real cryptographic algorithms
-
-        Args:
-            addr: Physical memory address
-            size: Size of memory region
-            key: Decryption key (32 bytes)
-            algorithm: 'aes' or 'chacha20'
-            iv: Initialization vector (16 bytes)
-
-        Returns:
-            Decrypted data or None on error
-        """
-        if len(key) != 32:
-            print("❌ Key must be exactly 32 bytes")
-            return None
-
-        if iv is None:
-            print("❌ IV required for decryption")
-            return None
-        elif len(iv) != 16:
-            print("❌ IV must be exactly 16 bytes")
-            return None
-
-        if size > BUFFER_SIZE:
-            print(f"❌ Size {size} exceeds maximum buffer size {BUFFER_SIZE}")
-            return None
-
-        mem_enc = MemoryEncryption()
-        mem_enc.addr = addr
-        mem_enc.size = size
-        mem_enc.algorithm = 0 if algorithm == 'aes' else 1
-
-        # Copy key and IV - proper ctypes conversion
-        ctypes.memmove(ctypes.addressof(mem_enc.key), key, len(key))
-        ctypes.memmove(ctypes.addressof(mem_enc.iv), iv, len(iv))
-
-        try:
-            fcntl.ioctl(self.device_fd, IOCTL_DECRYPT_MEMORY, mem_enc)
-
-            if mem_enc.result == 0:
-                self.operation_count += 1
-                print(f"🔓 Successfully decrypted {size} bytes with {algorithm.upper()}")
-                return bytes(mem_enc.encrypted_data[:size])
-            else:
-                print(f"❌ Decryption failed with error code: {mem_enc.result}")
-                return None
-
-        except OSError as e:
-            print(f"❌ Memory decryption failed: {e}")
-            return None
+    
 
     def hex_dump(self, data: bytes, addr: int = 0, width: int = 16) -> str:
         """
@@ -509,7 +390,6 @@ class AdvancedMemoryToolkit:
                 'Physical Memory Read/Write',
                 'Virtual ↔ Physical Address Translation',  
                 'Page Information Retrieval',
-                'Real AES/ChaCha20 Encryption',
                 'Memory Copy/Compare Operations'
             ]
         }
@@ -536,10 +416,7 @@ def main():
                        help='Physical to virtual address translation')
     parser.add_argument('--page-info', nargs=1, metavar='ADDR',
                        help='Get page information for address')
-    parser.add_argument('--encrypt', nargs=3, metavar=('ADDR', 'SIZE', 'KEY'),
-                       help='Encrypt memory region (hex addr, size, hex key)')
-    parser.add_argument('--decrypt', nargs=4, metavar=('ADDR', 'SIZE', 'KEY', 'IV'),
-                       help='Decrypt memory region (hex addr, size, hex key, hex iv)')
+    
     parser.add_argument('--copy-memory', nargs=3, metavar=('SRC', 'DST', 'SIZE'),
                        help='Copy memory (hex src, hex dst, size)')
     parser.add_argument('--compare-memory', nargs=3, metavar=('ADDR1', 'ADDR2', 'SIZE'),
@@ -556,7 +433,7 @@ def main():
         print(f"\n🔧 Advanced Memory Toolkit - Professional Memory Operations")
         print(f"💾 Physical Memory Read/Write Operations")
         print(f"🔄 Virtual ↔ Physical Address Translation")
-        print(f"🔒 Real AES/ChaCha20 Memory Encryption")
+        
         return
 
     # Initialize toolkit
@@ -597,12 +474,7 @@ def main():
                 for key, value in info.items():
                     print(f"  {key}: {value}")
 
-        elif args.encrypt:
-            addr, size = int(args.encrypt[0], 16), int(args.encrypt[1])
-            key = bytes.fromhex(args.encrypt[2])
-            encrypted = toolkit.encrypt_memory(addr, size, key)
-            if encrypted:
-                print("🔒 Memory encrypted successfully")
+        
 
         elif args.report:
             report = toolkit.generate_report()
@@ -626,7 +498,7 @@ def interactive_mode(toolkit):
     print("  v2p <vaddr>              - Virtual to physical translation")
     print("  p2v <paddr>              - Physical to virtual translation")
     print("  info <addr>              - Get page information")
-    print("  encrypt <addr> <size> <key> - Encrypt memory")
+    
     print("  copy <src> <dst> <size>  - Copy memory")
     print("  report                   - Show usage report")
     print("  help                     - Show this help")
@@ -670,7 +542,7 @@ def interactive_mode(toolkit):
                     print(f"  {key}: {value}")
 
             elif cmd[0] == 'help':
-                print("Available commands: read, write, v2p, p2v, info, encrypt, copy, report, help, quit")
+                print("Available commands: read, write, v2p, p2v, info, copy, report, help, quit")
 
             else:
                 print("❓ Unknown command. Type 'help' for available commands.")
