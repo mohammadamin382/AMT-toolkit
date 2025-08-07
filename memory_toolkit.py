@@ -19,7 +19,6 @@ DEVICE_PATH = "/dev/advanced_memory"
 BUFFER_SIZE = 8192
 
 # IOCTL commands (calculated using proper Python macros)
-# محاسبه درست مقادیر IOCTL با استفاده از fcntl
 import fcntl
 import array
 
@@ -36,7 +35,7 @@ def _IOW(type, nr, size):
 def _IOWR(type, nr, size):
     return _IOC(3, type, nr, size)  # 3 = _IOC_READ | _IOC_WRITE
 
-# ابتدا کلاس‌ها رو تعریف می‌کنیم
+# classes
 class MemoryOperation(ctypes.Structure):
     _fields_ = [
         ("phys_addr", ctypes.c_ulong),
@@ -72,14 +71,11 @@ class PageInfo(ctypes.Structure):
     ]
 
 
-
-# حالا که کلاس‌ها تعریف شدن، اندازه‌هاشون رو محاسبه می‌کنیم
 MEM_OPERATION_SIZE = ctypes.sizeof(MemoryOperation)
 ADDR_TRANSLATION_SIZE = ctypes.sizeof(AddressTranslation)
 PAGE_INFO_SIZE = ctypes.sizeof(PageInfo)
 
 
-# تعریف صحیح IOCTLها - حالا با کرنل مطابقت داره! 🎯
 IOCTL_READ_PHYS_MEM = _IOR('M', 1, MEM_OPERATION_SIZE)
 IOCTL_WRITE_PHYS_MEM = _IOW('M', 2, MEM_OPERATION_SIZE)
 IOCTL_VIRT_TO_PHYS = _IOWR('M', 3, ADDR_TRANSLATION_SIZE)
